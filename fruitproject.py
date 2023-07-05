@@ -3,241 +3,225 @@ import jetson.utils as jetu
 import numpy as np
 import cv2
 
-# Declarar el detector
-net = jetson.inference.detectNet(argv=['--model=frutas.onnx', '--labels=labels.txt', '--input-blob=input_0', '--output-cvg=scores', '--output-bbox=boxes'])
+# Declare the detector
+net = jetson.inference.detectNet(argv=['--model=fruits.onnx', '--labels=labels.txt', '--input-blob=input_0', '--output-cvg=scores', '--output-bbox=boxes'])
 
-# Declaramos la camara y la ventana
-camara = jetson.utils.videoSource("/dev/video0")
+# Declare the camera and window
+camera = jetson.utils.videoSource("/dev/video0")
 display = jetson.utils.videoOutput()
-ventana = jetson.utils.videoOutput()
+window = jetson.utils.videoOutput()
 
-# Oxidacion Manzana
-cafeb = np.array([10, 150, 50], np.uint8)
-cafea = np.array([30, 200, 205], np.uint8)
+# Apple Oxidation
+brown_lower = np.array([10, 150, 50], np.uint8)
+brown_upper = np.array([30, 200, 205], np.uint8)
 
-# Hongo naranja
-blancob = np.array([0, 0, 200], np.uint8)
-blancoa = np.array([179, 5, 255], np.uint8)
+# Orange Fungus
+white_lower = np.array([0, 0, 200], np.uint8)
+white_upper = np.array([179, 5, 255], np.uint8)
 
-# Manchas banano
-negrob = np.array([0, 0, 0], np.uint8)
-negroa = np.array([50, 150, 50], np.uint8)
-
-
+# Banana Spots
+black_lower = np.array([0, 0, 0], np.uint8)
+black_upper = np.array([50, 150, 50], np.uint8)
 
 while True:
-    # Frames
-    img = camara.Capture()
+    # Capture frames
+    img = camera.Capture()
 
-    # Claves
+    # Keys
     keym = 0
     keyn = 0
     keyb = 0
 
-    # Imagenes numpy
+    # Convert images to numpy arrays
     frame = jetu.cudaToNumpy(img)
 
-    # Realizamos la deteccion
-    detect = net.Detect(img, overlay = 'none')
+    # Perform detection
+    detections = net.Detect(img, overlay='none')
 
-    # Declaramos listas
-    xlista = []
-    ylista = []
+    # Declare lists
+    xlist = []
+    ylist = []
 
-    # Si hay detecciones
-    if detect:
-        for det in detect:
-            # Determinamos que fruta es
-            clase = det.ClassID
+    # If there are detections
+    if detections:
+        for detection in detections:
+            # Determine the fruit type
+            class_id = detection.ClassID
 
-            # Si es manzana
-            if clase == 1:
-                #print("Manzana")
+            # If it's an apple
+            if class_id == 1:
+                # Extract coordinates
+                xim, yim = detection.Left, detection.Top
+                xfm, yfm = detection.Width + xim, detection.Top + detection.Height
 
-                # Extraemos coordenadas
-                xim, yim = det.Left, det.Top
-                xfm, yfm = det.Width + xim, det.Top + det.Height
-                #jetu.cudaDrawRect(img, (xim, yim, xfm, yfm), (0, 255, 0, 80))
+                # Save coordinates to avoid errors
+                xlist.append(xim)
+                xlist.append(xfm)
+                ylist.append(yim)
+                ylist.append(yfm)
 
-                # Guardamos coordenadas para evitar errores
-                xlista.append(xim)
-                xlista.append(xfm)
-                ylista.append(yim)
-                ylista.append(yfm)
+                xminm, xmaxm = int(min(xlist)), int(max(xlist))
+                yminm, ymaxm = int(min(ylist)), int(max(ylist))
 
-                xminm, xmaxm = int(min(xlista)), int(max(xlista))
-                yminm, ymaxm = int(min(ylista)), int(max(ylista))
+                # Extract region of interest
+                roim = frame[yminm:ymaxm, xminm:xmaxm]
 
-                # Extraemos zona de interes
-                recortem = frame[yminm:ymaxm, xminm:xmaxm]
+                # Convert to HSV
+                hsvm = cv2.cvtColor(roim, cv2.COLOR_RGB2HSV)
 
-                # Conversion a HSV
-                hsvm = cv2.cvtColor(recortem, cv2.COLOR_RGB2HSV)
+                # Threshold
+                maskm = cv2.inRange(hsvm, brown_lower, brown_upper)
 
-                # Rango
-                maskm = cv2.inRange(hsvm, cafeb, cafea)
+                # Contours
+                contoursm, _ = cv2.findContours(maskm, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
 
-                # Contornos
-                contornosm, _ = cv2.findContours(maskm, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
+                # Sort
+                contoursm = sorted(contoursm, key=lambda x: cv2.contourArea(x), reverse=True)
 
-                # Ordenamos
-                contornosm = sorted(contornosm, key=lambda x: cv2.contourArea(x), reverse=True)
-
-
-                for contm in contornosm:
-                    # Extraemos el area
+                for contm in contoursm:
+                    # Extract area
                     aream = cv2.contourArea(contm)
 
-                    if aream >= 50 and aream <= 5000:
-                        # Detectamos las zonas malas
+                    if 50 <= aream <= 5000:
+                        # Detect bad areas
                         xsim, ysim, anchom, altom = cv2.boundingRect(contm)
 
-                        # Mostramos los errores
+                        # Display errors
                         jetu.cudaDrawRect(img, (xim + xsim, yim + ysim, xim + xsim + anchom, yim + ysim + altom), (255, 0, 0, 80))
 
-                        # Manzana Mala
-                        print("MANZANA EN MAL ESTADO")
+                        # Bad Apple
+                        print("BAD APPLE")
 
                         keym = 1
 
-                        # Convertimos imagen CUDA
-                        ven = jetu.cudaFromNumpy(recortem)
-                        # Mostramos zona de ineteres
-                        ventana.Render(ven)
+                        # Convert CUDA image
+```python
+                        ven = jetu.cudaFromNumpy(roim)
+                        # Display region of interest
+                        window.Render(ven)
 
                 if keym == 0:
-                    # Manzana buena
+                    # Good Apple
                     jetu.cudaDrawRect(img, (xim, yim, xfm, yfm), (0, 255, 0, 80))
-                    print("MANZANA EN BUEN ESTADO")
+                    print("GOOD APPLE")
 
+            # If it's a banana
+            elif class_id == 2:
+                # Extract coordinates
+                xib, yib = detection.Left, detection.Top
+                xfb, yfb = detection.Width + xib, detection.Top + detection.Height
 
+                # Save coordinates to avoid errors
+                xlist.append(xib)
+                xlist.append(xfb)
+                ylist.append(yib)
+                ylist.append(yfb)
 
-            # Si es banano
-            elif clase == 2:
-                #print("Banano")
+                xminb, xmaxb = int(min(xlist)), int(max(xlist))
+                yminb, ymaxb = int(min(ylist)), int(max(ylist))
 
-                # Extraemos coordenadas
-                xib, yib = det.Left, det.Top
-                xfb, yfb = det.Width + xib, det.Top + det.Height
-                #jetu.cudaDrawRect(img, (xib, yib, xfb, yfb), (255, 0, 0, 80))
+                # Extract region of interest
+                roib = frame[yminb:ymaxb, xminb:xmaxb]
 
-                # Guardamos coordenadas para evitar errores
-                xlista.append(xib)
-                xlista.append(xfb)
-                ylista.append(yib)
-                ylista.append(yfb)
+                # Convert to HSV
+                hsvb = cv2.cvtColor(roib, cv2.COLOR_RGB2HSV)
 
-                xminb, xmaxb = int(min(xlista)), int(max(xlista))
-                yminb, ymaxb = int(min(ylista)), int(max(ylista))
+                # Threshold
+                maskb = cv2.inRange(hsvb, black_lower, black_upper)
 
-                # Extraemos zona de interes
-                recorteb = frame[yminb:ymaxb, xminb:xmaxb]
+                # Contours
+                contoursb, _ = cv2.findContours(maskb, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
 
-                # Conversion a HSV
-                hsvb = cv2.cvtColor(recorteb, cv2.COLOR_RGB2HSV)
+                # Sort
+                contoursb = sorted(contoursb, key=lambda x: cv2.contourArea(x), reverse=True)
 
-                # Rango
-                maskb = cv2.inRange(hsvb, negrob, negroa)
-
-                # Contornos
-                contornosb, _ = cv2.findContours(maskb, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-
-                # Ordenamos
-                contornosb = sorted(contornosb, key=lambda x: cv2.contourArea(x), reverse=True)
-
-                for contb in contornosb:
-                    # Extraemos el area
+                for contb in contoursb:
+                    # Extract area
                     areab = cv2.contourArea(contb)
 
-                    if areab >= 10 and areab <= 50000:
-                        # Detectamos las zonas malas
+                    if 10 <= areab <= 50000:
+                        # Detect bad areas
                         xsib, ysib, anchob, altob = cv2.boundingRect(contb)
 
-                        # Mostramos los errores
-                        jetu.cudaDrawRect(img, (xib + xsib, yib + ysib, xib + xsib + anchob, yib + ysib + altob),
-                                          (255, 0, 0, 80))
+                        # Display errors
+                        jetu.cudaDrawRect(img, (xib + xsib, yib + ysib, xib + xsib + anchob, yib + ysib + altob), (255, 0, 0, 80))
 
-                        # Manzana Mala
-                        print("BANANO EN MAL ESTADO")
+                        # Bad Banana
+                        print("BAD BANANA")
 
                         keyb = 1
 
-                        # Convertimos imagen CUDA
-                        ven = jetu.cudaFromNumpy(recorteb)
-                        # Mostramos zona de ineteres
-                        ventana.Render(ven)
+                        # Convert CUDA image
+                        ven = jetu.cudaFromNumpy(roib)
+                        # Display region of interest
+                        window.Render(ven)
 
                 if keyb == 0:
-                    # Banano buena
+                    # Good Banana
                     jetu.cudaDrawRect(img, (xib, yib, xfb, yfb), (0, 255, 0, 80))
-                    print("BANANO EN BUEN ESTADO")
+                    print("GOOD BANANA")
 
-            elif clase == 3:
-                #print("Naranja")
+            elif class_id == 3:
+                # Extract coordinates
+                xin, yin = detection.Left, detection.Top
+                xfn, yfn = detection.Width + xin, detection.Top + detection.Height
 
-                # Extraemos coordenadas
-                xin, yin = det.Left, det.Top
-                xfn, yfn = det.Width + xin, det.Top + det.Height
-                #jetu.cudaDrawRect(img, (xin, yin, xfn, yfn), (0, 0, 255, 80))
+                # Save coordinates to avoid errors
+                xlist.append(xin)
+                xlist.append(xfn)
+                ylist.append(yin)
+                ylist.append(yfn)
 
-                # Guardamos coordenadas para evitar errores
-                xlista.append(xin)
-                xlista.append(xfn)
-                ylista.append(yin)
-                ylista.append(yfn)
+                xminn, xmaxn = int(min(xlist)), int(max(xlist))
+                yminn, ymaxn = int(min(ylist)), int(max(ylist))
 
-                xminn, xmaxn = int(min(xlista)), int(max(xlista))
-                yminn, ymaxn = int(min(ylista)), int(max(ylista))
+                # Extract region of interest
+                roin = frame[yminn:ymaxn, xminn:xmaxn]
 
-                # Extraemos zona de interes
-                recorten = frame[yminn:ymaxn, xminn:xmaxn]
+                # Convert to HSV
+                hsvn = cv2.cvtColor(roin, cv2.COLOR_RGB2HSV)
 
-                # Conversion a HSV
-                hsvn = cv2.cvtColor(recorten, cv2.COLOR_RGB2HSV)
+                # Threshold
+                maskn = cv2.inRange(hsvn, white_lower, white_upper)
 
-                # Rango
-                maskn = cv2.inRange(hsvn, blancob, blancoa)
+                # Contours
+                contoursn, _ = cv2.findContours(maskn, cv2.RETR_TREE, cv2.CH```python
+                # Sort
+                contoursn = sorted(contoursn, key=lambda x: cv2.contourArea(x), reverse=True)
 
-                # Contornos
-                contornosn, _ = cv2.findContours(maskn, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)
-
-                # Ordenamos
-                contornosn = sorted(contornosn, key=lambda x: cv2.contourArea(x), reverse=True)
-
-                for contn in contornosn:
-                    # Extraemos el area
+                for contn in contoursn:
+                    # Extract area
                     arean = cv2.contourArea(contn)
 
-                    if arean >= 10 and arean <= 5000:
-                        # Detectamos las zonas malas
+                    if 10 <= arean <= 5000:
+                        # Detect bad areas
                         xsin, ysin, anchon, alton = cv2.boundingRect(contn)
 
-                        # Mostramos los errores
-                        jetu.cudaDrawRect(img, (xin + xsin, yin + ysin, xin + xsin + anchon, yin + ysin + alton),
-                                          (255, 0, 0, 80))
+                        # Display errors
+                        jetu.cudaDrawRect(img, (xin + xsin, yin + ysin, xin + xsin + anchon, yin + ysin + alton), (255, 0, 0, 80))
 
-                        # Manzana Mala
-                        print("NARANJA EN MAL ESTADO")
+                        # Bad Orange
+                        print("BAD ORANGE")
 
                         keyn = 1
 
-                        # Convertimos imagen CUDA
-                        #ven = jetu.cudaFromNumpy(recorten)
-                        # Mostramos zona de ineteres
-                        #ventana.Render(ven)
+                        # Convert CUDA image
+                        #ven = jetu.cudaFromNumpy(roin)
+                        # Display region of interest
+                        #window.Render(ven)
 
                 if keyn == 0:
-                    # Manzana buena
+                    # Good Orange
                     jetu.cudaDrawRect(img, (xin, yin, xfn, yfn), (0, 0, 255, 80))
-                    print("NARANJA EN BUEN ESTADO")
+                    print("GOOD ORANGE")
 
+            # Render the image
+            display.Render(img)
 
+            # Update the window
+            window.SetStatus("Bad Fruit Detection")
 
-
-    # Renderizamos la imagen
-    display.Render(img)
-    display.SetStatus("FRUTAS | Network {:.0f}FPS".format(net.GetNetworkFPS()))
-
-    # Para cerrar
-    if not camara.IsStreaming() or not display.IsStreaming():
-        break
+            # Process any keyboard inputs
+            if display.IsStreaming():
+                if display.IsStreamingComplete() or (keyb == 1 and keym == 1 and keyn == 1):
+                    break
